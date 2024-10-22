@@ -89,18 +89,21 @@ function runpf(network_data)
 
     gen_status=zeros(Int64, num_gen); [gen_status[gen["index"]]=gen["gen_status"] for (i,gen) in network_data["gen"]]
     load_status=zeros(Int64, num_load); [load_status[load["index"]]=load["status"] for (i,load) in network_data["load"]]
-    pg0=zeros(Float64, num_gen); [pg0[gen["index"]]=gen["gen_status"].*gen["pg"] for (i,gen) in network_data["gen"]]
+    # pg in runpf problem is fixed
+    pg0=zeros(Float64, num_gen); [pg0[gen["index"]]=gen["gen_status"]*gen["pg"] for (i,gen) in network_data["gen"]]
     #qg0=zeros(Float64, num_gen); [qg0[gen["index"]]=gen["gen_status"].*gen["qg"] for (i,gen) in network_data["gen"]]
-    pl0=zeros(Float64, num_load); [pl0[load["index"]]=load["status"].*load["pd"] for (i,load) in network_data["load"]]
-    ql0=zeros(Float64, num_load); [ql0[load["index"]]=load["status"].*load["qd"] for (i,load) in network_data["load"]]
+    pl0=zeros(Float64, num_load); [pl0[load["index"]]=load["status"]*load["pd"] for (i,load) in network_data["load"]]
+    ql0=zeros(Float64, num_load); [ql0[load["index"]]=load["status"]*load["qd"] for (i,load) in network_data["load"]]
     pinj0=Cg*pg0-Cl*pl0; qinj0=-Cl*ql0
     Sinj=pinj0+1im*qinj0
 
     Y,Yf,Yt=makeYbus(network_data)
 
     # Initialization
+    # vm can be assigned a vector of 1
     vm=zeros(Float64, num_bus); [vm[bus["idx"]]=bus["vm"] for (i,bus) in network_data["bus"]]
     [vm[network_data["bus"][string(gen["gen_bus"])]["idx"]]=gen["vg"] for (i,gen) in network_data["gen"]]
+    # va could be set to 0
     va=zeros(Float64, num_bus); [va[bus["idx"]]=bus["va"] for (i,bus) in network_data["bus"]]
     va[slack_bus]=0
     delta=0
@@ -113,10 +116,11 @@ function runpf(network_data)
     max_iter=30
     nf=zeros(max_iter); ndx=zeros(max_iter)
 
+    # core of runpf funciton: newtwon method
     for iter=1:max_iter
-        v_cpx=vm.*cos.(va)+1im*vm.*sin.(va)
-        S_bal=v_cpx.*conj(Y*v_cpx)-Sinj-Cg*alpha*delta
-        f=[real(S_bal); imag(S_bal[idx_pq])]
+        v_cpx=vm.*cos.(va)+1im*vm.*sin.(va) # voltage in complex form
+        S_bal=v_cpx.*conj(Y*v_cpx)-Sinj-Cg*alpha*delta # differences of node injection power calculated by voltages
+        f=[real(S_bal); imag(S_bal[idx_pq])] # delete the (num_slack + num_gen) rows and columns
         J1=real(Diagonal(v_cpx)*conj(Y.*(ones(num_bus)*transpose(1im*v_cpx)))+Diagonal(1im*v_cpx)*Diagonal(conj(Y*v_cpx)))
         J2=real(Diagonal(v_cpx)*conj(Y.*(ones(num_bus)*transpose(v_cpx./vm)))+Diagonal(v_cpx./vm)*Diagonal(conj(Y*v_cpx)))
         J3=imag(Diagonal(v_cpx)*conj(Y.*(ones(num_bus)*transpose(1im*v_cpx)))+Diagonal(1im*v_cpx)*Diagonal(conj(Y*v_cpx)))
